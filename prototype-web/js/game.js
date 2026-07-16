@@ -32,6 +32,7 @@
   const obstacles = [];
   const coinsArr = [];
   const tiles = [];
+  const fx = [];                       // короткоживущие эффекты (подбор кристалла)
   let best = Number(localStorage.getItem('kf_best') || 0);
 
   // Бустеры/скин (приходят из магазина через window.KosmoFlot)
@@ -58,9 +59,9 @@
     scene.background = new THREE.Color(0x060814);
     scene.fog = new THREE.Fog(0x070a1a, 45, 120);
 
-    camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 400);
-    camera.position.set(0, 4.4, 8);
-    camera.lookAt(0, 1.4, -12);
+    camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 400);
+    camera.position.set(0, 7.2, 15);       // отодвинута дальше от корабля
+    camera.lookAt(0, 1.2, -14);
 
     renderer = new THREE.WebGLRenderer({ canvas: $('#scene'), antialias: true });
     renderer.setSize(innerWidth, innerHeight);
@@ -126,6 +127,24 @@
     ctx.fillRect(0, 0, s, s);
     const tex = new THREE.CanvasTexture(cv);
     return tex;
+  }
+
+  // Кольцо (для эффекта подбора)
+  let _ringTex = null;
+  function ringTexture() {
+    if (_ringTex) return _ringTex;
+    const s = 128, cv = document.createElement('canvas');
+    cv.width = cv.height = s;
+    const ctx = cv.getContext('2d');
+    ctx.strokeStyle = '#ffe38a';
+    ctx.shadowColor = '#ffce4d';
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(s / 2, s / 2, s / 2 - 16, 0, Math.PI * 2);
+    ctx.stroke();
+    _ringTex = new THREE.CanvasTexture(cv);
+    return _ringTex;
   }
 
   // Далёкие цветные облака-туманности (билборды)
@@ -351,12 +370,37 @@
       }
       grp.add(makeGlow(0xffa030, 2.6, 0, 2.45, 0));
 
-    } else { // OB_WALL → астероид, обходится сменой полосы
-      const ast = makeAsteroid(1.15, 0x8a8f9c, 0x5a3a7a);
-      ast.position.set(0, 1.5, 0);
-      grp.add(ast);
-      grp.userData.spin = (Math.random() - 0.5) * 1.2;
-      grp.userData.ast = ast;
+    } else { // OB_WALL → энергетическая стена, обходится сменой полосы
+      // Две несущие опоры
+      for (const s of [-1, 1]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 3.4, 12), metal(0x2b3652));
+        pillar.position.set(s * 0.98, 1.7, 0);
+        grp.add(pillar);
+        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8),
+          new THREE.MeshBasicMaterial({ color: 0xc07dff }));
+        knob.position.set(s * 0.98, 3.35, 0);
+        grp.add(knob);
+      }
+      // Светящаяся панель силового поля
+      const field = new THREE.Mesh(new THREE.PlaneGeometry(1.92, 3.15),
+        new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.4, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+      field.position.set(0, 1.7, 0);
+      grp.add(field);
+      grp.userData.field = field;
+      // Рамка (верх/низ) и горизонтальные линии-сканы
+      for (const yy of [0.2, 3.2]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.1, 0.14),
+          new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0x7a1fd0, emissiveIntensity: 1.2, roughness: 0.4 }));
+        bar.position.set(0, yy, 0);
+        grp.add(bar);
+      }
+      for (let i = 0; i < 3; i++) {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.05, 0.02),
+          new THREE.MeshBasicMaterial({ color: 0xdcb4ff, transparent: true, opacity: 0.5 }));
+        line.position.set(0, 0.9 + i * 0.85, 0.03);
+        grp.add(line);
+      }
+      grp.add(makeGlow(0xa855f7, 3.0, 0, 1.7, 0));
     }
 
     grp.position.set(LANES[lane], 0, z);
@@ -376,23 +420,6 @@
     return s;
   }
 
-  // Рокотный астероид: икосаэдр со смещёнными вершинами
-  function makeAsteroid(r, rockHex, emHex) {
-    const geo = new THREE.IcosahedronGeometry(r, 1);
-    const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const f = 1 + (Math.random() - 0.5) * 0.5;
-      p.setXYZ(i, p.getX(i) * f, p.getY(i) * f * 1.15, p.getZ(i) * f);
-    }
-    geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({
-      color: rockHex, emissive: emHex, emissiveIntensity: 0.25,
-      metalness: 0.3, roughness: 0.9, flatShading: true,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.scale.set(1.5, 1.5, 1.0);
-    return mesh;
-  }
 
   function buildCoin(lane, z, y) {
     const gem = new THREE.Mesh(
@@ -412,6 +439,38 @@
     gem.userData = { spin: Math.random() * Math.PI };
     scene.add(gem);
     coinsArr.push(gem);
+  }
+
+  // Эффект подбора: расходящееся золотое кольцо + вспышка (отличается от идущего кристалла)
+  function spawnCoinPickup(pos) {
+    const ring = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: ringTexture(), color: 0xffd873,
+      blending: THREE.AdditiveBlending, transparent: true, opacity: 1, depthWrite: false,
+    }));
+    ring.position.copy(pos);
+    ring.scale.setScalar(0.6);
+    scene.add(ring);
+    fx.push({ obj: ring, t: 0, dur: 0.45, kind: 'ring' });
+
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture(0xfff0b0), color: 0xffe89a,
+      blending: THREE.AdditiveBlending, transparent: true, opacity: 0.9, depthWrite: false,
+    }));
+    flash.position.copy(pos);
+    flash.scale.setScalar(1.0);
+    scene.add(flash);
+    fx.push({ obj: flash, t: 0, dur: 0.3, kind: 'flash' });
+  }
+
+  function updateFx(dt) {
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i];
+      f.t += dt;
+      const k = f.t / f.dur;
+      if (f.kind === 'ring') { f.obj.scale.setScalar(0.6 + k * 2.6); f.obj.material.opacity = 1 - k; }
+      else { f.obj.scale.setScalar(1.0 + k * 0.8); f.obj.material.opacity = 0.9 * (1 - k); }
+      if (k >= 1) { scene.remove(f.obj); fx.splice(i, 1); }
+    }
   }
 
   // Процедурная генерация участка впереди
@@ -524,7 +583,8 @@
     for (const o of obstacles) scene.remove(o);
     for (const c of coinsArr) scene.remove(c);
     for (const t of tiles) scene.remove(t);
-    obstacles.length = 0; coinsArr.length = 0; tiles.length = 0;
+    for (const f of fx) scene.remove(f.obj);
+    obstacles.length = 0; coinsArr.length = 0; tiles.length = 0; fx.length = 0;
 
     playerLane = 1; velY = 0; sliding = false; onGround = true;
     speed = START_SPEED; distance = 0; coins = 0; spawnCursor = 0;
@@ -584,6 +644,8 @@
     const sh = player.userData.shield;
     if (sh && sh.visible) sh.scale.setScalar(1 + Math.sin(now * 0.012) * 0.06);
 
+    updateFx(dt);
+
     renderer.render(scene, camera);
   }
 
@@ -621,7 +683,7 @@
     // Двигаем мир к игроку
     for (const o of obstacles) {
       o.position.z += dz;
-      if (o.userData.ast) { o.userData.ast.rotation.y += o.userData.spin * dt; o.userData.ast.rotation.x += dt * 0.4; }
+      if (o.userData.field) o.userData.field.material.opacity = 0.32 + Math.sin(performance.now() * 0.006 + o.position.z) * 0.12;
     }
     for (const c of coinsArr) {
       c.position.z += dz;
@@ -681,6 +743,7 @@
       if (Math.abs(c.position.z - PLAYER_Z) < 1.1 &&
           Math.abs(c.position.x - px) < 1.0 &&
           Math.abs(c.position.y - (py + 0.8)) < 1.4) {
+        spawnCoinPickup(c.position.clone());   // эффект подбора
         scene.remove(c); coinsArr.splice(i, 1); coins++;
       }
     }
