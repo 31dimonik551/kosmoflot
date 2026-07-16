@@ -178,3 +178,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
 .hud-boosters{position:absolute;top:56px;right:16px;display:flex;gap:6px;}
 .hud-boost{background:rgba(10,14,30,.55);border:1px solid rgba(56,232,255,.35);
   border-radius:8px;padding:4px 8px;font-size:16px;}
+
+/* ============ FPS-переключатель ============ */
+.fps-row{display:flex;align-items:center;gap:8px;justify-content:center;
+  font-size:13px;opacity:.85;margin-top:2px;}
+.fps-row span{opacity:.7;}
+.fps-btn{background:rgba(20,26,51,.85);border:1px solid rgba(56,232,255,.3);
+  color:var(--text);border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer;
+  font-size:13px;min-width:46px;}
+.fps-btn.active{background:rgba(56,232,255,.18);border-color:var(--neon);color:var(--neon);
+  box-shadow:0 0 10px rgba(56,232,255,.35);}

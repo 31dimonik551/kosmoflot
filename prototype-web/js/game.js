@@ -39,6 +39,16 @@
   let magnetActive = false, shieldActive = false, invuln = 0;
   const MAGNET_RADIUS = 3.2;
 
+  // Бустер «Разгон» (dash)
+  let dashTimer = 0;
+  const DASH_TIME = 2.5;
+  const DASH_SPEED = 42;
+
+  // Ограничение частоты кадров (60/90/120)
+  let targetFps = Number(localStorage.getItem('kf_fps') || 60);
+  let frameInterval = 1000 / targetFps;
+  let lastRender = 0;
+
   // Внешний хук для мета-систем (Task 2). Вызывается при завершении забега.
   window.KosmoFlot = window.KosmoFlot || {};
 
@@ -541,7 +551,22 @@
 
     el.play.addEventListener('click', startRun);
     el.retry.addEventListener('click', startRun);
+
+    // Выбор частоты кадров
+    document.querySelectorAll('.fps-btn').forEach((b) =>
+      b.addEventListener('click', () => setFps(Number(b.dataset.fps))));
+    setFps(targetFps);
   }
+
+  function setFps(n) {
+    targetFps = n;
+    frameInterval = 1000 / n;
+    lastRender = 0;
+    localStorage.setItem('kf_fps', String(n));
+    document.querySelectorAll('.fps-btn').forEach((b) =>
+      b.classList.toggle('active', Number(b.dataset.fps) === n));
+  }
+  window.KosmoFlot.setFps = setFps;
 
   function onKey(e) {
     if (state !== State.RUN) {
@@ -591,14 +616,21 @@
     player.position.set(LANES[1], 0, PLAYER_Z);
     player.scale.set(1, 1, 1);
 
+    // Сброс камеры (после возможного рывка в прошлом забеге)
+    camera.fov = 66; camera.updateProjectionMatrix();
+
     // Скин + бустеры из магазина
     applySkin(player, currentSkin());
-    magnetActive = false; shieldActive = false; invuln = 0;
+    magnetActive = false; shieldActive = false; invuln = 0; dashTimer = 0;
     if (window.KosmoFlot && typeof window.KosmoFlot.takeBoostersForRun === 'function') {
       const b = window.KosmoFlot.takeBoostersForRun() || {};
       magnetActive = !!b.magnet;
       shieldActive = !!b.shield;
-      if (b.headStart) { distance = 250; spawnCursor = 250; invuln = 2.5; }
+      if (b.headStart) {           // Разгон: рывок вперёд + неуязвимость + бонус к дистанции
+        dashTimer = DASH_TIME;
+        invuln = DASH_TIME;
+        distance = 150; spawnCursor = 150;
+      }
     }
     player.userData.shield.visible = shieldActive || invuln > 0;
 
@@ -626,8 +658,13 @@
   // ============================================================
   //  Игровой цикл
   // ============================================================
-  function animate() {
+  function animate(now) {
     requestAnimationFrame(animate);
+    // Ограничение частоты кадров до выбранной (60/90/120)
+    if (now === undefined) now = performance.now();
+    if (now - lastRender < frameInterval - 1.5) return;
+    lastRender = now;
+
     const dt = Math.min(clock.getDelta(), 0.05);
 
     if (state === State.RUN) update(dt);
@@ -635,7 +672,6 @@
     // анимация звёзд/свечения вне зависимости от состояния
     const stars = scene.getObjectByName('stars');
     if (stars) stars.rotation.z += dt * 0.015;
-    const now = performance.now();
     const glow = player.userData.glow;
     glow.scale.setScalar(1.5 + Math.sin(now * 0.02) * 0.35);
     // свет корабля следует за ним
@@ -652,7 +688,21 @@
   function update(dt) {
     // Скорость нарастает
     speed = Math.min(MAX_SPEED, speed + ACCEL * dt);
-    const dz = speed * dt;
+
+    // Бустер «Разгон»: рывок скорости + неуязвимость + толчок камеры
+    let effSpeed = speed;
+    if (dashTimer > 0) {
+      dashTimer -= dt;
+      effSpeed = Math.max(effSpeed, DASH_SPEED);
+      invuln = Math.max(invuln, 0.12);
+    }
+    const targetFov = dashTimer > 0 ? 82 : 66;
+    if (Math.abs(camera.fov - targetFov) > 0.1) {
+      camera.fov += (targetFov - camera.fov) * Math.min(1, 6 * dt);
+      camera.updateProjectionMatrix();
+    }
+
+    const dz = effSpeed * dt;
     distance += dz;
 
     // Плавное перестроение по X

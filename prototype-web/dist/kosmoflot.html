@@ -181,6 +181,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
 .hud-boost{background:rgba(10,14,30,.55);border:1px solid rgba(56,232,255,.35);
   border-radius:8px;padding:4px 8px;font-size:16px;}
 
+/* ============ FPS-переключатель ============ */
+.fps-row{display:flex;align-items:center;gap:8px;justify-content:center;
+  font-size:13px;opacity:.85;margin-top:2px;}
+.fps-row span{opacity:.7;}
+.fps-btn{background:rgba(20,26,51,.85);border:1px solid rgba(56,232,255,.3);
+  color:var(--text);border-radius:9px;padding:7px 14px;font-weight:800;cursor:pointer;
+  font-size:13px;min-width:46px;}
+.fps-btn.active{background:rgba(56,232,255,.18);border-color:var(--neon);color:var(--neon);
+  box-shadow:0 0 10px rgba(56,232,255,.35);}
+
 </style>
 <div id="game-root">
   <canvas id="scene"></canvas>
@@ -214,6 +224,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
       <button class="btn btn-meta" id="btn-shop">
         <b>Магазин</b><small>скины · бустеры</small>
       </button>
+    </div>
+    <div class="fps-row">
+      <span>Кадры/с:</span>
+      <button class="fps-btn" data-fps="60">60</button>
+      <button class="fps-btn" data-fps="90">90</button>
+      <button class="fps-btn" data-fps="120">120</button>
     </div>
     <div class="hint">
       <b>Управление:</b> ← → или A/D — полосы · ↑/W или свайп вверх — прыжок ·
@@ -347,6 +363,16 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   // Бустеры/скин (приходят из магазина через window.KosmoFlot)
   let magnetActive = false, shieldActive = false, invuln = 0;
   const MAGNET_RADIUS = 3.2;
+
+  // Бустер «Разгон» (dash)
+  let dashTimer = 0;
+  const DASH_TIME = 2.5;
+  const DASH_SPEED = 42;
+
+  // Ограничение частоты кадров (60/90/120)
+  let targetFps = Number(localStorage.getItem('kf_fps') || 60);
+  let frameInterval = 1000 / targetFps;
+  let lastRender = 0;
 
   // Внешний хук для мета-систем (Task 2). Вызывается при завершении забега.
   window.KosmoFlot = window.KosmoFlot || {};
@@ -850,7 +876,22 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
     el.play.addEventListener('click', startRun);
     el.retry.addEventListener('click', startRun);
+
+    // Выбор частоты кадров
+    document.querySelectorAll('.fps-btn').forEach((b) =>
+      b.addEventListener('click', () => setFps(Number(b.dataset.fps))));
+    setFps(targetFps);
   }
+
+  function setFps(n) {
+    targetFps = n;
+    frameInterval = 1000 / n;
+    lastRender = 0;
+    localStorage.setItem('kf_fps', String(n));
+    document.querySelectorAll('.fps-btn').forEach((b) =>
+      b.classList.toggle('active', Number(b.dataset.fps) === n));
+  }
+  window.KosmoFlot.setFps = setFps;
 
   function onKey(e) {
     if (state !== State.RUN) {
@@ -900,14 +941,21 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     player.position.set(LANES[1], 0, PLAYER_Z);
     player.scale.set(1, 1, 1);
 
+    // Сброс камеры (после возможного рывка в прошлом забеге)
+    camera.fov = 66; camera.updateProjectionMatrix();
+
     // Скин + бустеры из магазина
     applySkin(player, currentSkin());
-    magnetActive = false; shieldActive = false; invuln = 0;
+    magnetActive = false; shieldActive = false; invuln = 0; dashTimer = 0;
     if (window.KosmoFlot && typeof window.KosmoFlot.takeBoostersForRun === 'function') {
       const b = window.KosmoFlot.takeBoostersForRun() || {};
       magnetActive = !!b.magnet;
       shieldActive = !!b.shield;
-      if (b.headStart) { distance = 250; spawnCursor = 250; invuln = 2.5; }
+      if (b.headStart) {           // Разгон: рывок вперёд + неуязвимость + бонус к дистанции
+        dashTimer = DASH_TIME;
+        invuln = DASH_TIME;
+        distance = 150; spawnCursor = 150;
+      }
     }
     player.userData.shield.visible = shieldActive || invuln > 0;
 
@@ -935,8 +983,13 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   // ============================================================
   //  Игровой цикл
   // ============================================================
-  function animate() {
+  function animate(now) {
     requestAnimationFrame(animate);
+    // Ограничение частоты кадров до выбранной (60/90/120)
+    if (now === undefined) now = performance.now();
+    if (now - lastRender < frameInterval - 1.5) return;
+    lastRender = now;
+
     const dt = Math.min(clock.getDelta(), 0.05);
 
     if (state === State.RUN) update(dt);
@@ -944,7 +997,6 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     // анимация звёзд/свечения вне зависимости от состояния
     const stars = scene.getObjectByName('stars');
     if (stars) stars.rotation.z += dt * 0.015;
-    const now = performance.now();
     const glow = player.userData.glow;
     glow.scale.setScalar(1.5 + Math.sin(now * 0.02) * 0.35);
     // свет корабля следует за ним
@@ -961,7 +1013,21 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   function update(dt) {
     // Скорость нарастает
     speed = Math.min(MAX_SPEED, speed + ACCEL * dt);
-    const dz = speed * dt;
+
+    // Бустер «Разгон»: рывок скорости + неуязвимость + толчок камеры
+    let effSpeed = speed;
+    if (dashTimer > 0) {
+      dashTimer -= dt;
+      effSpeed = Math.max(effSpeed, DASH_SPEED);
+      invuln = Math.max(invuln, 0.12);
+    }
+    const targetFov = dashTimer > 0 ? 82 : 66;
+    if (Math.abs(camera.fov - targetFov) > 0.1) {
+      camera.fov += (targetFov - camera.fov) * Math.min(1, 6 * dt);
+      camera.updateProjectionMatrix();
+    }
+
+    const dz = effSpeed * dt;
     distance += dz;
 
     // Плавное перестроение по X
@@ -1099,6 +1165,7 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
   const BP_XP_PER_TIER = 100;
   const XP_PER_COIN = 10;                 // XP за 1 кристалл в забеге
   const XP_PER_METER = 1;                 // XP за 1 метр
+  const PREMIUM_PRICE = 2000;             // стоимость Premium-трека батлпасса, кристаллы
   const DAILY_CYCLE = [50, 75, 100, 150, 200, 300, 500, 1000]; // награды дней 1..8
 
   // Скины корабля (цвета передаются в игру через getActiveSkin)
@@ -1192,8 +1259,11 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
     dom.bpFill.style.width = (bpXpInLevel() / BP_XP_PER_TIER * 100) + '%';
     dom.bpBtnTier.textContent = 'Ур. ' + lvl;
     dom.bpCta.classList.toggle('owned', state.bpPremium);
-    dom.bpBuy.textContent = state.bpPremium ? 'Premium активен' : 'Открыть Premium';
-    dom.bpBuy.disabled = state.bpPremium;
+    dom.bpBuy.textContent = state.bpPremium
+      ? 'Premium активен'
+      : ('Открыть Premium · ' + PREMIUM_PRICE + ' 💎');
+    // Нельзя активировать без покупки: кнопка недоступна, если не хватает кристаллов
+    dom.bpBuy.disabled = state.bpPremium || state.crystals < PREMIUM_PRICE;
 
     dom.bpTrack.innerHTML = '';
     for (const t of BP) {
@@ -1244,7 +1314,10 @@ function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"f
 
   function buyPremium() {
     if (state.bpPremium) return;
-    state.bpPremium = true;      // прототип: без реальной оплаты
+    if (state.crystals < PREMIUM_PRICE) return;   // без покупки активировать нельзя
+    state.crystals -= PREMIUM_PRICE;
+    state.bpPremium = true;
+    updateWallet();
     save();
     renderBattlePass();
   }

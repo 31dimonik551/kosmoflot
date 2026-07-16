@@ -14,6 +14,7 @@
   const BP_XP_PER_TIER = 100;
   const XP_PER_COIN = 10;                 // XP за 1 кристалл в забеге
   const XP_PER_METER = 1;                 // XP за 1 метр
+  const PREMIUM_PRICE = 2000;             // стоимость Premium-трека батлпасса, кристаллы
   const DAILY_CYCLE = [50, 75, 100, 150, 200, 300, 500, 1000]; // награды дней 1..8
 
   // Скины корабля (цвета передаются в игру через getActiveSkin)
@@ -107,8 +108,11 @@
     dom.bpFill.style.width = (bpXpInLevel() / BP_XP_PER_TIER * 100) + '%';
     dom.bpBtnTier.textContent = 'Ур. ' + lvl;
     dom.bpCta.classList.toggle('owned', state.bpPremium);
-    dom.bpBuy.textContent = state.bpPremium ? 'Premium активен' : 'Открыть Premium';
-    dom.bpBuy.disabled = state.bpPremium;
+    dom.bpBuy.textContent = state.bpPremium
+      ? 'Premium активен'
+      : ('Открыть Premium · ' + PREMIUM_PRICE + ' 💎');
+    // Нельзя активировать без покупки: кнопка недоступна, если не хватает кристаллов
+    dom.bpBuy.disabled = state.bpPremium || state.crystals < PREMIUM_PRICE;
 
     dom.bpTrack.innerHTML = '';
     for (const t of BP) {
@@ -159,7 +163,10 @@
 
   function buyPremium() {
     if (state.bpPremium) return;
-    state.bpPremium = true;      // прототип: без реальной оплаты
+    if (state.crystals < PREMIUM_PRICE) return;   // без покупки активировать нельзя
+    state.crystals -= PREMIUM_PRICE;
+    state.bpPremium = true;
+    updateWallet();
     save();
     renderBattlePass();
   }
