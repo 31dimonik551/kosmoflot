@@ -37,6 +37,9 @@
         <b>Награда дня</b><small id="daily-btn-state">Забрать!</small>
         <em class="badge hidden" id="daily-badge">!</em>
       </button>
+      <button class="btn btn-meta" id="btn-shop">
+        <b>Магазин</b><small>скины · бустеры</small>
+      </button>
     </div>
     <div class="hint">
       <b>Управление:</b> ← → или A/D — полосы · ↑/W или свайп вверх — прыжок ·
@@ -79,6 +82,22 @@
       </div>
       <div class="bp-track-labels"><span>Free</span><span>Premium</span></div>
       <div id="bp-track" class="bp-track"></div>
+    </div>
+
+    <!-- Shop -->
+    <div id="panel-shop" class="panel hidden">
+      <div class="panel-head">
+        <h2>Магазин</h2>
+        <button class="panel-x" data-close>✕</button>
+      </div>
+      <div class="shop-balance">Баланс: <b><span id="shop-balance">0</span> 💎</b></div>
+      <div class="shop-tabs">
+        <button class="shop-tab active" data-tab="skins">Скины корабля</button>
+        <button class="shop-tab" data-tab="boosters">Бустеры</button>
+      </div>
+      <div id="shop-skins" class="shop-grid"></div>
+      <div id="shop-boosters" class="shop-list hidden"></div>
+      <div id="shop-msg" class="shop-msg"></div>
     </div>
 
     <!-- Daily -->

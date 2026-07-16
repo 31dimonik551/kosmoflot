@@ -16,6 +16,22 @@
   const XP_PER_METER = 1;                 // XP за 1 метр
   const DAILY_CYCLE = [50, 75, 100, 150, 200, 300, 500, 1000]; // награды дней 1..8
 
+  // Скины корабля (цвета передаются в игру через getActiveSkin)
+  const SKINS = [
+    { id: 'default', name: 'Стандарт', price: 0,    body: 0x39c6ff, hull: 0x1a3450, wing: 0xa855f7, engine: 0xffce4d },
+    { id: 'ember',   name: 'Эмбер',    price: 300,  body: 0xff6a3c, hull: 0x3a1a10, wing: 0xffb03c, engine: 0xff3a2a },
+    { id: 'toxic',   name: 'Токсик',   price: 500,  body: 0x8aff3c, hull: 0x143209, wing: 0x3cff9a, engine: 0xd4ff3c },
+    { id: 'void',    name: 'Войд',     price: 800,  body: 0xb15cff, hull: 0x1a0a33, wing: 0xff5cf0, engine: 0x9a5cff },
+    { id: 'gold',    name: 'Ауреус',   price: 1500, body: 0xffd24d, hull: 0x3a2a08, wing: 0xfff0a0, engine: 0xffffff },
+  ];
+
+  // Бустеры (расходники, применяются в следующем забеге)
+  const BOOSTERS = [
+    { id: 'magnet',    ico: '🧲', name: 'Магнит',  price: 120, desc: 'Притягивает кристаллы весь забег.' },
+    { id: 'shield',    ico: '🛡️', name: 'Щит',     price: 180, desc: 'Гасит одно столкновение.' },
+    { id: 'headStart', ico: '🚀', name: 'Разгон',  price: 150, desc: 'Старт на +250 м и 2.5 с неуязвимости.' },
+  ];
+
   // Награды батлпасса (генерируются один раз)
   const BP = buildBattlePass();
 
@@ -38,8 +54,10 @@
     btnDouble: $('#btn-double'),
     adOverlay: $('#ad-overlay'), adTimer: $('#ad-timer'),
     btnPlay: $('#btn-play'), btnRetry: $('#btn-retry'), btnHome: $('#btn-home'),
-    btnBp: $('#btn-battlepass'), btnDaily: $('#btn-daily'),
+    btnBp: $('#btn-battlepass'), btnDaily: $('#btn-daily'), btnShop: $('#btn-shop'),
     screenStart: $('#screen-start'), screenOver: $('#screen-over'),
+    panelShop: $('#panel-shop'), shopBalance: $('#shop-balance'),
+    shopSkins: $('#shop-skins'), shopBoosters: $('#shop-boosters'), shopMsg: $('#shop-msg'),
   };
 
   // Ожидающая награда забега (для удвоения по рекламе)
@@ -53,6 +71,8 @@
       crystals: 0, bpXp: 0, bpPremium: false,
       bpClaimedFree: [], bpClaimedPrem: [],
       dailyLast: null, dailyStreak: 0,
+      skinsOwned: ['default'], activeSkin: 'default',
+      boosters: { magnet: 0, shield: 0, headStart: 0 },
     };
   }
   function load() {
@@ -241,9 +261,110 @@
     dom.modalRoot.classList.remove('hidden');
     dom.panelBp.classList.add('hidden');
     dom.panelDaily.classList.add('hidden');
+    dom.panelShop.classList.add('hidden');
     panel.classList.remove('hidden');
   }
   function closeModal() { dom.modalRoot.classList.add('hidden'); }
+
+  // ============================================================
+  //  Магазин: скины + бустеры
+  // ============================================================
+  const skinById = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
+
+  // Хук для игры: активный скин (цвета)
+  window.KosmoFlot.getActiveSkin = function () {
+    const s = skinById(state.activeSkin);
+    return { body: s.body, hull: s.hull, wing: s.wing, engine: s.engine };
+  };
+
+  // Хук для игры: списать бустеры на предстоящий забег
+  window.KosmoFlot.takeBoostersForRun = function () {
+    const b = state.boosters, used = {};
+    for (const key of ['magnet', 'shield', 'headStart']) {
+      if (b[key] > 0) { b[key]--; used[key] = true; }
+    }
+    save();
+    return used;
+  };
+
+  function renderShop() {
+    dom.shopBalance.textContent = state.crystals;
+    dom.shopMsg.textContent = '';
+
+    // Скины
+    dom.shopSkins.innerHTML = '';
+    for (const s of SKINS) {
+      const owned = state.skinsOwned.includes(s.id);
+      const active = state.activeSkin === s.id;
+      const card = document.createElement('div');
+      card.className = 'skin-card';
+      const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+      card.innerHTML =
+        `<div class="skin-swatch" style="background:linear-gradient(135deg,${hex(s.body)},${hex(s.hull)});--sw-wing:${hex(s.wing)};--sw-eng:${hex(s.engine)}"></div>` +
+        `<div class="skin-name">${s.name}</div>`;
+      const btn = document.createElement('button');
+      if (active) { btn.className = 'skin-btn equipped'; btn.textContent = 'Надет'; btn.disabled = true; }
+      else if (owned) { btn.className = 'skin-btn equip'; btn.textContent = 'Надеть';
+        btn.onclick = () => { state.activeSkin = s.id; save(); renderShop(); RefreshMeta(); }; }
+      else { btn.className = 'skin-btn buy'; btn.textContent = s.price + ' 💎';
+        btn.disabled = state.crystals < s.price;
+        btn.onclick = () => buySkin(s); }
+      card.appendChild(btn);
+      dom.shopSkins.appendChild(card);
+    }
+
+    // Бустеры
+    dom.shopBoosters.innerHTML = '';
+    for (const b of BOOSTERS) {
+      const row = document.createElement('div');
+      row.className = 'booster-row';
+      const own = state.boosters[b.id] || 0;
+      row.innerHTML =
+        `<div class="booster-ico">${b.ico}</div>` +
+        `<div class="booster-info"><b>${b.name}</b><small>${b.desc}</small>` +
+        `<span class="booster-own">${own > 0 ? 'В наличии: ' + own : ''}</span></div>`;
+      const buy = document.createElement('button');
+      buy.className = 'booster-buy';
+      buy.textContent = b.price + ' 💎';
+      buy.disabled = state.crystals < b.price;
+      buy.onclick = () => buyBooster(b);
+      row.appendChild(buy);
+      dom.shopBoosters.appendChild(row);
+    }
+  }
+
+  function buySkin(s) {
+    if (state.skinsOwned.includes(s.id) || state.crystals < s.price) return;
+    state.crystals -= s.price;
+    state.skinsOwned.push(s.id);
+    state.activeSkin = s.id;
+    save(); updateWallet(); renderShop(); RefreshMeta();
+    dom.shopMsg.textContent = 'Скин «' + s.name + '» куплен и надет!';
+  }
+
+  function buyBooster(b) {
+    if (state.crystals < b.price) return;
+    state.crystals -= b.price;
+    state.boosters[b.id] = (state.boosters[b.id] || 0) + 1;
+    save(); updateWallet(); renderShop();
+    dom.shopMsg.textContent = b.name + ' куплен. Активируется в следующем забеге.';
+  }
+
+  function switchTab(tab) {
+    document.querySelectorAll('.shop-tab').forEach((t) =>
+      t.classList.toggle('active', t.dataset.tab === tab));
+    dom.shopSkins.classList.toggle('hidden', tab !== 'skins');
+    dom.shopBoosters.classList.toggle('hidden', tab !== 'boosters');
+  }
+
+  // Перерисовка кнопок меню (баланс, батлпасс, дейли). Определяется ниже,
+  // объявляем ссылку заранее для вызовов из магазина.
+  function RefreshMeta() {
+    updateWallet();
+    dom.bpBtnTier.textContent = 'Ур. ' + bpLevel();
+    dom.dailyBadge.classList.toggle('hidden', !dailyClaimable());
+    dom.dailyBtnState.textContent = dailyClaimable() ? 'Забрать!' : 'Завтра';
+  }
 
   // Хук из game.js — вызывается по завершении забега
   window.KosmoFlot.onRunFinished = function (res) {
@@ -269,6 +390,9 @@
   function wire() {
     dom.btnBp.addEventListener('click', () => { renderBattlePass(); openModal(dom.panelBp); });
     dom.btnDaily.addEventListener('click', () => { renderDaily(); openModal(dom.panelDaily); });
+    dom.btnShop.addEventListener('click', () => { renderShop(); switchTab('skins'); openModal(dom.panelShop); });
+    document.querySelectorAll('.shop-tab').forEach((t) =>
+      t.addEventListener('click', () => switchTab(t.dataset.tab)));
     dom.bpBuy.addEventListener('click', buyPremium);
     dom.dailyClaim.addEventListener('click', claimDaily);
     dom.btnDouble.addEventListener('click', doubleViaAd);

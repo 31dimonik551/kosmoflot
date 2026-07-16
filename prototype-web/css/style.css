@@ -138,3 +138,43 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
 .ad-count{margin-top:18px;font-size:16px;}
 .ad-count b{color:var(--neon);font-size:22px;}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:.8;}50%{transform:scale(1.15);opacity:1;}}
+
+/* ============ Магазин ============ */
+.shop-balance{font-size:14px;opacity:.85;margin-bottom:12px;}
+.shop-balance b{color:var(--gold);}
+.shop-tabs{display:flex;gap:8px;margin-bottom:14px;}
+.shop-tab{flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(56,232,255,.25);
+  color:var(--text);border-radius:10px;padding:10px;font-weight:700;cursor:pointer;font-size:13px;}
+.shop-tab.active{background:rgba(56,232,255,.15);border-color:var(--neon);color:var(--neon);}
+
+.shop-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+.skin-card{border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:14px;
+  text-align:center;background:rgba(255,255,255,.03);position:relative;}
+.skin-swatch{height:56px;border-radius:10px;margin-bottom:10px;position:relative;overflow:hidden;}
+.skin-swatch::after{content:'';position:absolute;left:50%;top:50%;width:34px;height:14px;
+  transform:translate(-50%,-50%);border-radius:4px;background:var(--sw-wing);box-shadow:0 0 12px var(--sw-eng);}
+.skin-name{font-weight:800;font-size:14px;margin-bottom:8px;}
+.skin-btn{width:100%;border:none;border-radius:9px;padding:9px;font-weight:800;cursor:pointer;
+  font-size:13px;letter-spacing:.5px;}
+.skin-btn.buy{background:linear-gradient(135deg,var(--gold),#ff9f45);color:#3a2400;}
+.skin-btn.equip{background:rgba(56,232,255,.15);border:1px solid var(--neon);color:var(--neon);}
+.skin-btn.equipped{background:rgba(56,232,255,.25);color:var(--neon);cursor:default;}
+.skin-btn:disabled{opacity:.45;cursor:not-allowed;}
+
+.shop-list{display:flex;flex-direction:column;gap:12px;}
+.booster-row{display:flex;align-items:center;gap:12px;border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;padding:12px;background:rgba(255,255,255,.03);}
+.booster-ico{font-size:30px;width:44px;text-align:center;}
+.booster-info{flex:1;}
+.booster-info b{display:block;font-size:15px;}
+.booster-info small{opacity:.65;font-size:12px;line-height:1.4;}
+.booster-own{font-size:12px;color:var(--neon);font-weight:700;}
+.booster-buy{background:linear-gradient(135deg,var(--gold),#ff9f45);color:#3a2400;
+  border:none;border-radius:9px;padding:10px 16px;font-weight:800;cursor:pointer;white-space:nowrap;}
+.booster-buy:disabled{opacity:.45;cursor:not-allowed;}
+.shop-msg{margin-top:12px;min-height:18px;font-size:13px;color:var(--neon);text-align:center;}
+
+/* Индикаторы активных бустеров в HUD */
+.hud-boosters{position:absolute;top:56px;right:16px;display:flex;gap:6px;}
+.hud-boost{background:rgba(10,14,30,.55);border:1px solid rgba(56,232,255,.35);
+  border-radius:8px;padding:4px 8px;font-size:16px;}

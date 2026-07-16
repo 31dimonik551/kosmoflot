@@ -23,7 +23,7 @@
   const State = { MENU: 0, RUN: 1, OVER: 2 };
   let state = State.MENU;
 
-  let scene, camera, renderer, clock;
+  let scene, camera, renderer, clock, shipLight;
   let player, playerLane = 1;
   let velY = 0, sliding = false, slideTimer = 0, onGround = true;
   let speed = START_SPEED;
@@ -33,6 +33,10 @@
   const coinsArr = [];
   const tiles = [];
   let best = Number(localStorage.getItem('kf_best') || 0);
+
+  // Бустеры/скин (приходят из магазина через window.KosmoFlot)
+  let magnetActive = false, shieldActive = false, invuln = 0;
+  const MAGNET_RADIUS = 3.2;
 
   // Внешний хук для мета-систем (Task 2). Вызывается при завершении забега.
   window.KosmoFlot = window.KosmoFlot || {};
@@ -51,7 +55,8 @@
   // ============================================================
   function init() {
     scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x05060f, 40, 105);
+    scene.background = new THREE.Color(0x060814);
+    scene.fog = new THREE.Fog(0x070a1a, 45, 120);
 
     camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 400);
     camera.position.set(0, 4.4, 8);
@@ -62,15 +67,23 @@
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
     // Свет
-    scene.add(new THREE.AmbientLight(0x5566aa, 0.9));
-    const key = new THREE.DirectionalLight(0x88ccff, 1.1);
-    key.position.set(-6, 12, 6);
+    scene.add(new THREE.AmbientLight(0x3a4770, 0.8));
+    const key = new THREE.DirectionalLight(0xbfe0ff, 1.25);
+    key.position.set(-6, 14, 6);
     scene.add(key);
-    const rim = new THREE.PointLight(0xa855f7, 1.4, 60);
-    rim.position.set(0, 6, -20);
-    scene.add(rim);
+    const rimPurple = new THREE.PointLight(0xa855f7, 2.2, 90);
+    rimPurple.position.set(-10, 7, -28);
+    scene.add(rimPurple);
+    const rimCyan = new THREE.PointLight(0x38e8ff, 2.0, 90);
+    rimCyan.position.set(10, 7, -40);
+    scene.add(rimCyan);
+    // Локальная подсветка корабля
+    shipLight = new THREE.PointLight(0x9fe8ff, 1.4, 12);
+    shipLight.position.set(0, 2.2, 1);
+    scene.add(shipLight);
 
     buildStarfield();
+    buildNebula();
     player = buildShip();
     scene.add(player);
 
@@ -79,49 +92,162 @@
     animate();
   }
 
-  // Звёздное небо — облако точек
+  // Звёздное небо — облако точек с разными размерами/цветами
   function buildStarfield() {
     const g = new THREE.BufferGeometry();
-    const n = 900, pos = new Float32Array(n * 3);
+    const n = 1400, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    const palette = [[0.62, 0.82, 1], [1, 1, 1], [0.8, 0.7, 1], [1, 0.9, 0.75]];
     for (let i = 0; i < n; i++) {
-      pos[i * 3]     = (Math.random() - 0.5) * 260;
-      pos[i * 3 + 1] = Math.random() * 90 - 6;
-      pos[i * 3 + 2] = -Math.random() * 380;
+      pos[i * 3]     = (Math.random() - 0.5) * 300;
+      pos[i * 3 + 1] = Math.random() * 110 - 8;
+      pos[i * 3 + 2] = -Math.random() * 420;
+      const c = palette[(Math.random() * palette.length) | 0];
+      col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
     }
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const m = new THREE.PointsMaterial({ color: 0x9fd0ff, size: 0.5, sizeAttenuation: true });
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const m = new THREE.PointsMaterial({ size: 0.7, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.9 });
     const stars = new THREE.Points(g, m);
     stars.name = 'stars';
     scene.add(stars);
   }
 
-  // Кораблик игрока (стилизованный истребитель)
+  // Радиальная текстура-«клякса» для свечений и туманности
+  function radialTexture(hex) {
+    const s = 128, cv = document.createElement('canvas');
+    cv.width = cv.height = s;
+    const ctx = cv.getContext('2d');
+    const col = '#' + hex.toString(16).padStart(6, '0');
+    const grd = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    grd.addColorStop(0, col);
+    grd.addColorStop(0.25, col);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, s, s);
+    const tex = new THREE.CanvasTexture(cv);
+    return tex;
+  }
+
+  // Далёкие цветные облака-туманности (билборды)
+  function buildNebula() {
+    const clouds = [
+      { c: 0x3a1d6e, x: -34, y: 20, z: -220, s: 150 },
+      { c: 0x0d3f5e, x: 40, y: 14, z: -260, s: 180 },
+      { c: 0x5a1f4d, x: 6, y: 34, z: -320, s: 220 },
+    ];
+    for (const n of clouds) {
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: radialTexture(n.c), transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      spr.position.set(n.x, n.y, n.z);
+      spr.scale.setScalar(n.s);
+      scene.add(spr);
+    }
+  }
+
+  // Скин по умолчанию
+  const DEFAULT_SKIN = { body: 0x39c6ff, hull: 0x1a3450, wing: 0xa855f7, engine: 0xffce4d };
+
+  // Стилизованный истребитель — собран из геометрии, поддерживает скины
   function buildShip() {
     const grp = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.55, 2.0, 6),
-      new THREE.MeshStandardMaterial({ color: 0x38e8ff, emissive: 0x0a3a4a, metalness: 0.6, roughness: 0.3 })
-    );
-    body.rotation.x = -Math.PI / 2;
-    body.position.y = 0.9;
-    grp.add(body);
+    const ud = grp.userData;
 
-    const wingMat = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0x2a0a4a, metalness: 0.5, roughness: 0.4 });
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.7), wingMat);
-    wing.position.y = 0.7;
-    grp.add(wing);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: DEFAULT_SKIN.body, emissive: 0x0a2a3a, emissiveIntensity: 0.5, metalness: 0.85, roughness: 0.25 });
+    const hullMat = new THREE.MeshStandardMaterial({ color: DEFAULT_SKIN.hull, metalness: 0.9, roughness: 0.35 });
+    const wingMat = new THREE.MeshStandardMaterial({ color: DEFAULT_SKIN.wing, emissive: 0x2a0a4a, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.35 });
+    const engineMat = new THREE.MeshBasicMaterial({ color: DEFAULT_SKIN.engine });
+    ud.mats = { bodyMat, hullMat, wingMat, engineMat };
 
-    // Двигательное свечение
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.32, 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffce4d })
-    );
-    glow.position.set(0, 0.85, 0.9);
+    // Фюзеляж: коническое тело носом вперёд (-z)
+    const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.5, 2.3, 16), bodyMat);
+    fuse.rotation.x = -Math.PI / 2;
+    fuse.position.y = 0.85;
+    grp.add(fuse);
+
+    // Брюхо/каркас
+    const belly = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.2, 4, 12), hullMat);
+    belly.rotation.x = Math.PI / 2;
+    belly.position.set(0, 0.62, 0.15);
+    grp.add(belly);
+
+    // Кабина — светящийся купол
+    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12),
+      new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x2aa0c0, emissiveIntensity: 0.9, metalness: 0.4, roughness: 0.1, transparent: true, opacity: 0.85 }));
+    cockpit.scale.set(1, 0.7, 1.3);
+    cockpit.position.set(0, 1.05, -0.2);
+    grp.add(cockpit);
+
+    // Крылья (стреловидные)
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.08, 0.85), wingMat);
+      wing.position.set(side * 0.85, 0.66, 0.35);
+      wing.rotation.y = side * -0.35;
+      grp.add(wing);
+      // законцовка со свечением
+      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.5),
+        new THREE.MeshBasicMaterial({ color: DEFAULT_SKIN.body }));
+      tip.position.set(side * 1.42, 0.7, 0.5);
+      grp.add(tip);
+      ud[side < 0 ? 'tipL' : 'tipR'] = tip;
+    }
+
+    // Киль
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.5), wingMat);
+    fin.position.set(0, 1.0, 0.7);
+    grp.add(fin);
+
+    // Два двигателя + сопла
+    for (const side of [-0.35, 0.35]) {
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.4, 12), hullMat);
+      nozzle.rotation.x = Math.PI / 2;
+      nozzle.position.set(side, 0.62, 0.95);
+      grp.add(nozzle);
+      const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), engineMat);
+      flame.position.set(side, 0.62, 1.15);
+      grp.add(flame);
+    }
+
+    // Аддитивное свечение выхлопа (билборд)
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture(0xff9a3c), color: 0xffd27a,
+      blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+    }));
+    glow.position.set(0, 0.62, 1.35);
+    glow.scale.setScalar(1.6);
     grp.add(glow);
-    grp.userData.glow = glow;
+    ud.glow = glow;
+
+    // Щит-пузырь (виден при активном щите/неуязвимости)
+    const shield = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 16),
+      new THREE.MeshBasicMaterial({ color: 0x54e0ff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }));
+    shield.position.y = 0.75;
+    shield.visible = false;
+    grp.add(shield);
+    ud.shield = shield;
 
     grp.position.set(LANES[playerLane], 0, PLAYER_Z);
+    applySkin(grp, currentSkin());
     return grp;
+  }
+
+  function currentSkin() {
+    if (window.KosmoFlot && typeof window.KosmoFlot.getActiveSkin === 'function') {
+      return window.KosmoFlot.getActiveSkin() || DEFAULT_SKIN;
+    }
+    return DEFAULT_SKIN;
+  }
+
+  function applySkin(grp, skin) {
+    const m = grp.userData.mats;
+    if (!m) return;
+    m.bodyMat.color.setHex(skin.body);
+    m.hullMat.color.setHex(skin.hull);
+    m.wingMat.color.setHex(skin.wing);
+    m.engineMat.color.setHex(skin.engine);
+    if (grp.userData.tipL) grp.userData.tipL.material.color.setHex(skin.body);
+    if (grp.userData.tipR) grp.userData.tipR.material.color.setHex(skin.body);
   }
 
   // ============================================================
@@ -129,22 +255,51 @@
   // ============================================================
   function buildTile(z) {
     const grp = new THREE.Group();
+
     const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(9, 0.5, TILE_LEN),
-      new THREE.MeshStandardMaterial({ color: 0x141a33, metalness: 0.4, roughness: 0.6 })
+      new THREE.BoxGeometry(8.6, 0.5, TILE_LEN),
+      new THREE.MeshStandardMaterial({ color: 0x0c1226, metalness: 0.5, roughness: 0.55 })
     );
     floor.position.y = -0.25;
     grp.add(floor);
 
-    // Неоновые направляющие по краям полос
-    for (const gx of [-3.6, 3.6]) {
-      const strip = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.14, TILE_LEN),
+    // Поперечные «шпалы» — ритм скорости
+    for (let i = 0; i < 4; i++) {
+      const rung = new THREE.Mesh(
+        new THREE.BoxGeometry(7.6, 0.06, 0.18),
+        new THREE.MeshBasicMaterial({ color: 0x16305a })
+      );
+      rung.position.set(0, 0.02, -TILE_LEN / 2 + 2.5 + i * 5);
+      grp.add(rung);
+    }
+
+    // Тонкие разделители трёх полос
+    for (const gx of [-1.2, 1.2]) {
+      const div = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.06, TILE_LEN),
+        new THREE.MeshBasicMaterial({ color: 0x1f5f6e })
+      );
+      div.position.set(gx, 0.02, 0);
+      grp.add(div);
+    }
+
+    // Светящиеся рельсы-борта
+    for (const gx of [-3.7, 3.7]) {
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.22, TILE_LEN),
         new THREE.MeshBasicMaterial({ color: 0x38e8ff })
       );
-      strip.position.set(gx, 0.03, 0);
-      grp.add(strip);
+      rail.position.set(gx, 0.08, 0);
+      grp.add(rail);
+      // невысокий бортик под рельсом
+      const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.7, TILE_LEN),
+        new THREE.MeshStandardMaterial({ color: 0x101a36, metalness: 0.6, roughness: 0.4 })
+      );
+      wall.position.set(gx * 1.03, -0.2, 0);
+      grp.add(wall);
     }
+
     grp.position.z = z;
     scene.add(grp);
     tiles.push(grp);
@@ -156,35 +311,107 @@
   const OB_WALL = 'wall';  // полная стена — менять полосу
 
   function buildObstacle(type, lane, z) {
-    let mesh, h, y;
+    const grp = new THREE.Group();
+    const metal = (c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.9, roughness: 0.35 });
+
     if (type === OB_LOW) {
-      h = 1.0; y = 0.5;
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1.8, h, 0.8),
-        new THREE.MeshStandardMaterial({ color: 0xff4d6d, emissive: 0x3a0010, metalness: 0.3, roughness: 0.5 }));
+      // Энергобарьер: перепрыгнуть
+      for (const s of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.1, 10), metal(0x6a2030));
+        post.position.set(s * 0.85, 0.5, 0);
+        grp.add(post);
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8),
+          new THREE.MeshBasicMaterial({ color: 0xff4d6d }));
+        cap.position.set(s * 0.85, 1.05, 0);
+        grp.add(cap);
+      }
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.7, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0xff4d6d, emissive: 0xff1030, emissiveIntensity: 1.1, roughness: 0.4 }));
+      bar.position.set(0, 0.55, 0);
+      grp.add(bar);
+      grp.add(makeGlow(0xff3355, 2.4, 0, 0.55, 0));
+
     } else if (type === OB_HIGH) {
-      h = 1.1; y = 2.5;
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1.9, h, 0.8),
-        new THREE.MeshStandardMaterial({ color: 0xffa54d, emissive: 0x3a1a00, metalness: 0.3, roughness: 0.5 }));
-    } else { // wall
-      h = 3.4; y = 1.7;
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1.9, h, 0.7),
-        new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0x24003a, metalness: 0.4, roughness: 0.4 }));
+      // Лазерные ворота: подкат
+      for (const s of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 3.4, 12), metal(0x7a4a1a));
+        post.position.set(s * 0.95, 1.7, 0);
+        grp.add(post);
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.28, 0.18),
+        new THREE.MeshStandardMaterial({ color: 0xffa54d, emissive: 0xff7a00, emissiveIntensity: 1.3, roughness: 0.4 }));
+      beam.position.set(0, 2.45, 0);
+      grp.add(beam);
+      // предупреждающие огни
+      for (const s of [-1, 1]) {
+        const led = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffd24d }));
+        led.position.set(s * 0.95, 3.35, 0);
+        grp.add(led);
+      }
+      grp.add(makeGlow(0xffa030, 2.6, 0, 2.45, 0));
+
+    } else { // OB_WALL → астероид, обходится сменой полосы
+      const ast = makeAsteroid(1.15, 0x8a8f9c, 0x5a3a7a);
+      ast.position.set(0, 1.5, 0);
+      grp.add(ast);
+      grp.userData.spin = (Math.random() - 0.5) * 1.2;
+      grp.userData.ast = ast;
     }
-    mesh.position.set(LANES[lane], y, z);
-    mesh.userData = { type, lane, h, y };
-    scene.add(mesh);
-    obstacles.push(mesh);
+
+    grp.position.set(LANES[lane], 0, z);
+    grp.userData.type = type;
+    scene.add(grp);
+    obstacles.push(grp);
+  }
+
+  // Аддитивный билборд-глоу
+  function makeGlow(hex, size, x, y, z) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture(hex), color: hex,
+      blending: THREE.AdditiveBlending, transparent: true, opacity: 0.7, depthWrite: false,
+    }));
+    s.position.set(x, y, z);
+    s.scale.setScalar(size);
+    return s;
+  }
+
+  // Рокотный астероид: икосаэдр со смещёнными вершинами
+  function makeAsteroid(r, rockHex, emHex) {
+    const geo = new THREE.IcosahedronGeometry(r, 1);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const f = 1 + (Math.random() - 0.5) * 0.5;
+      p.setXYZ(i, p.getX(i) * f, p.getY(i) * f * 1.15, p.getZ(i) * f);
+    }
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: rockHex, emissive: emHex, emissiveIntensity: 0.25,
+      metalness: 0.3, roughness: 0.9, flatShading: true,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(1.5, 1.5, 1.0);
+    return mesh;
   }
 
   function buildCoin(lane, z, y) {
-    const coin = new THREE.Mesh(
-      new THREE.TorusGeometry(0.32, 0.12, 8, 16),
-      new THREE.MeshStandardMaterial({ color: 0xffce4d, emissive: 0x5a3d00, metalness: 0.8, roughness: 0.2 })
+    const gem = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.34, 0),
+      new THREE.MeshStandardMaterial({ color: 0x7fefff, emissive: 0x18b0c8, emissiveIntensity: 0.9, metalness: 0.6, roughness: 0.1, flatShading: true })
     );
-    coin.position.set(LANES[lane], y, z);
-    coin.userData = { lane, spin: Math.random() * Math.PI };
-    scene.add(coin);
-    coinsArr.push(coin);
+    gem.scale.set(1, 1.5, 1);
+    // ореол
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture(0x38e8ff), color: 0x9ff4ff,
+      blending: THREE.AdditiveBlending, transparent: true, opacity: 0.55, depthWrite: false,
+    }));
+    halo.scale.setScalar(1.5);
+    gem.add(halo);
+
+    gem.position.set(typeof lane === 'number' ? LANES[lane] : lane, y, z);
+    gem.userData = { spin: Math.random() * Math.PI };
+    scene.add(gem);
+    coinsArr.push(gem);
   }
 
   // Процедурная генерация участка впереди
@@ -302,6 +529,18 @@
     playerLane = 1; velY = 0; sliding = false; onGround = true;
     speed = START_SPEED; distance = 0; coins = 0; spawnCursor = 0;
     player.position.set(LANES[1], 0, PLAYER_Z);
+    player.scale.set(1, 1, 1);
+
+    // Скин + бустеры из магазина
+    applySkin(player, currentSkin());
+    magnetActive = false; shieldActive = false; invuln = 0;
+    if (window.KosmoFlot && typeof window.KosmoFlot.takeBoostersForRun === 'function') {
+      const b = window.KosmoFlot.takeBoostersForRun() || {};
+      magnetActive = !!b.magnet;
+      shieldActive = !!b.shield;
+      if (b.headStart) { distance = 250; spawnCursor = 250; invuln = 2.5; }
+    }
+    player.userData.shield.visible = shieldActive || invuln > 0;
 
     generateAhead();
     el.start.classList.add('hidden');
@@ -335,9 +574,15 @@
 
     // анимация звёзд/свечения вне зависимости от состояния
     const stars = scene.getObjectByName('stars');
-    if (stars) stars.rotation.z += dt * 0.02;
+    if (stars) stars.rotation.z += dt * 0.015;
+    const now = performance.now();
     const glow = player.userData.glow;
-    glow.scale.setScalar(0.8 + Math.sin(performance.now() * 0.02) * 0.25);
+    glow.scale.setScalar(1.5 + Math.sin(now * 0.02) * 0.35);
+    // свет корабля следует за ним
+    if (shipLight) { shipLight.position.x = player.position.x; shipLight.position.y = player.position.y + 1.6; }
+    // пульс щита
+    const sh = player.userData.shield;
+    if (sh && sh.visible) sh.scale.setScalar(1 + Math.sin(now * 0.012) * 0.06);
 
     renderer.render(scene, camera);
   }
@@ -369,9 +614,28 @@
       player.scale.y += (1 - player.scale.y) * Math.min(1, 12 * dt);
     }
 
+    // Неуязвимость (щит/разгон) и щит-пузырь
+    if (invuln > 0) invuln = Math.max(0, invuln - dt);
+    player.userData.shield.visible = shieldActive || invuln > 0;
+
     // Двигаем мир к игроку
-    for (const o of obstacles) o.position.z += dz;
-    for (const c of coinsArr) { c.position.z += dz; c.rotation.z += dt * 4; }
+    for (const o of obstacles) {
+      o.position.z += dz;
+      if (o.userData.ast) { o.userData.ast.rotation.y += o.userData.spin * dt; o.userData.ast.rotation.x += dt * 0.4; }
+    }
+    for (const c of coinsArr) {
+      c.position.z += dz;
+      c.rotation.y += dt * 3;
+      // Магнит: подтягиваем близкие кристаллы к кораблю
+      if (magnetActive && c.position.z > -6 && c.position.z < 12) {
+        const dx = player.position.x - c.position.x;
+        const dy = (player.position.y + 0.8) - c.position.y;
+        if (Math.hypot(dx, c.position.z) < MAGNET_RADIUS + 6) {
+          c.position.x += dx * Math.min(1, 8 * dt);
+          c.position.y += dy * Math.min(1, 8 * dt);
+        }
+      }
+    }
     for (const t of tiles) t.position.z += dz;
 
     // Рециклинг тайлов
@@ -422,6 +686,7 @@
     }
 
     // Препятствия
+    if (invuln > 0) return;
     for (const o of obstacles) {
       if (Math.abs(o.position.z - PLAYER_Z) > 0.9) continue;
       if (Math.abs(o.position.x - px) > 1.2) continue;   // не наша полоса
@@ -430,7 +695,13 @@
       if (t === OB_LOW)  hit = py < 1.4;                 // перепрыгнули?
       else if (t === OB_HIGH) hit = !isSliding && py < 1.5; // подкат/прыжок?
       else if (t === OB_WALL) hit = true;                // только смена полосы
-      if (hit) { gameOver(); return; }
+      if (hit) {
+        if (shieldActive) {                              // щит гасит один удар
+          shieldActive = false; invuln = 1.4;
+          return;
+        }
+        gameOver(); return;
+      }
     }
   }
 
