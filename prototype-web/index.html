@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>KosmoFlot — космический раннер</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%80%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="game-root">
+  <canvas id="scene"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-pill" id="hud-score">0 <span>м</span></div>
+      <div class="hud-pill hud-coins"><i class="coin-ico"></i><span id="hud-coins">0</span></div>
+    </div>
+  </div>
+
+  <!-- Кошелёк (виден в меню) -->
+  <div id="wallet" class="hidden">
+    <div class="wallet-pill"><i class="coin-ico"></i><span id="wallet-crystals">0</span></div>
+  </div>
+
+  <!-- Старт -->
+  <div id="screen-start" class="screen">
+    <div class="logo">KOSMO<span>FLOT</span></div>
+    <p class="tagline">Космический раннер</p>
+    <button class="btn btn-primary" id="btn-play">В ПОЛЁТ</button>
+    <div class="meta-buttons">
+      <button class="btn btn-meta" id="btn-battlepass">
+        <b>Battle&nbsp;Pass</b><small id="bp-btn-tier">Ур. 1</small>
+      </button>
+      <button class="btn btn-meta" id="btn-daily">
+        <b>Награда дня</b><small id="daily-btn-state">Забрать!</small>
+        <em class="badge hidden" id="daily-badge">!</em>
+      </button>
+    </div>
+    <div class="hint">
+      <b>Управление:</b> ← → или A/D — полосы · ↑/W или свайп вверх — прыжок ·
+      ↓/S или свайп вниз — подкат
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="screen-over" class="screen hidden">
+    <div class="over-title">КРУШЕНИЕ</div>
+    <div class="over-stats">
+      <div><span id="over-score">0</span><small>метров</small></div>
+      <div><span id="over-coins">0</span><small>кристаллов</small></div>
+    </div>
+    <div id="over-best" class="best">Рекорд: 0 м</div>
+    <div id="over-reward" class="over-reward">+<span id="over-earned">0</span> кристаллов · +<span id="over-xp">0</span> XP</div>
+    <button class="btn btn-ad" id="btn-double">📺 Смотреть рекламу — удвоить награду</button>
+    <button class="btn btn-primary" id="btn-retry">ЕЩЁ РАЗ</button>
+    <button class="btn btn-ghost" id="btn-home">В меню</button>
+  </div>
+
+  <!-- ===== Модальные панели ===== -->
+  <div id="modal-root" class="hidden">
+    <div class="modal-backdrop" data-close></div>
+
+    <!-- Battle Pass -->
+    <div id="panel-bp" class="panel hidden">
+      <div class="panel-head">
+        <h2>Battle Pass · Сезон 1</h2>
+        <button class="panel-x" data-close>✕</button>
+      </div>
+      <div class="bp-progress">
+        <div class="bp-level">Ур. <b id="bp-level">1</b></div>
+        <div class="bp-bar"><i id="bp-fill"></i></div>
+        <div class="bp-xp"><span id="bp-xp-cur">0</span>/<span id="bp-xp-max">100</span> XP</div>
+      </div>
+      <div id="bp-premium-cta" class="bp-premium-cta">
+        <span>Premium-трек: премиальные награды на каждом уровне</span>
+        <button class="btn btn-gold" id="bp-buy">Открыть Premium</button>
+      </div>
+      <div class="bp-track-labels"><span>Free</span><span>Premium</span></div>
+      <div id="bp-track" class="bp-track"></div>
+    </div>
+
+    <!-- Daily -->
+    <div id="panel-daily" class="panel hidden">
+      <div class="panel-head">
+        <h2>Ежедневная награда</h2>
+        <button class="panel-x" data-close>✕</button>
+      </div>
+      <p class="panel-sub">Заходи каждый день — награда растёт. Пропуск сбрасывает серию.</p>
+      <div id="daily-grid" class="daily-grid"></div>
+      <button class="btn btn-primary" id="daily-claim">Забрать награду</button>
+      <div id="daily-msg" class="daily-msg"></div>
+    </div>
+  </div>
+
+  <!-- Оверлей «просмотра рекламы» -->
+  <div id="ad-overlay" class="hidden">
+    <div class="ad-box">
+      <div class="ad-tag">РЕКЛАМА</div>
+      <div class="ad-anim">📡</div>
+      <div class="ad-count">Награда через <b id="ad-timer">3</b>…</div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/game.js"></script>
+<script src="js/meta.js"></script>
+</body>
+</html>
